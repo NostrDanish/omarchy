@@ -1,7 +1,7 @@
 ---
 name: hermes-desktop-recovery
 description: "Diagnose and fix Hermes Desktop launch failures, package↔agent skew, arity crashes, and SIGTRAP core loops on Linux."
-version: 1.1.0
+version: 1.2.0
 author: Hermes Agent
 license: MIT
 platforms: [linux]
@@ -55,19 +55,20 @@ This env var skips the installed runtime and sticks on first-run setup. Only set
 
 ### 4. GPU process FATAL / SIGTRAP on weak NVIDIA (GTX 1050 class)
 Chromium `GPU process launch failed: error_code=1002` → `GPU process isn't usable` → SIGTRAP.
-ANGLE SwiftShader alone may still die after a while. Fix in the launcher:
+ANGLE SwiftShader alone may still die after a while. The Omarchy wrapper soft-defaults software GPU when `nvidia-smi` reports ≤4 GiB VRAM:
 
 ```bash
-export HERMES_DESKTOP_NVIDIA_SWIFTSHADER=1
-export HERMES_DESKTOP_DISABLE_GPU=1
+export HERMES_DESKTOP_NVIDIA_SWIFTSHADER=1   # soft-defaulted on weak NVIDIA
+export HERMES_DESKTOP_DISABLE_GPU=1          # required; SwiftShader alone is insufficient
 # also in ~/.hermes/config.yaml under desktop:
 #   disable_gpu: true
+# Override on capable GPUs: HERMES_DESKTOP_DISABLE_GPU=0
 ```
 
 Markers (Hermes-owned): `~/.config/Hermes/nvidia-egl-fallback.json`, `linux-gpu-fallback.json`.
 If skew is resolved and crash persists with `int3`/TRAP, use `diagnose-crash` + `symbolize-core-dump`.
 
-**Lesson (2026.10.06):** `HERMES_DESKTOP_NVIDIA_SWIFTSHADER=1` alone was INSUFFICIENT — crashed with GPU process `error_code=1002` / `FATAL: GPU process isn't usable`. The definitive fix was `HERMES_DESKTOP_DISABLE_GPU=1` (fully removes GPU process), combined with `--disable-setuid-sandbox --ozone-platform=wayland`. SwiftShader alone still hit the 1002 error later in the boot sequence.
+**Lesson (2026.10.06):** `HERMES_DESKTOP_NVIDIA_SWIFTSHADER=1` alone was INSUFFICIENT — crashed with GPU process `error_code=1002` / `FATAL: GPU process isn't usable`. The definitive fix was `HERMES_DESKTOP_DISABLE_GPU=1` (fully removes GPU process), combined with `--disable-setuid-sandbox --ozone-platform=wayland`.
 
 ## The Fix Procedure
 
@@ -87,7 +88,7 @@ File: `~/.config/omarchy/bin/hermes-desktop`
 Ensure it:
 - Unpacks with `if len(opts) >= 5: flags, gpu, store, ozone, renderer_a11y = opts[:5]` (not hard 4-tuple)
 - Does NOT export `HERMES_DESKTOP_IGNORE_EXISTING=1` for normal launches
-- On low-VRAM NVIDIA laptops, exports `HERMES_DESKTOP_DISABLE_GPU=1` (and preferably `HERMES_DESKTOP_NVIDIA_SWIFTSHADER=1`)
+- Soft-defaults `HERMES_DESKTOP_DISABLE_GPU=1` (+ SwiftShader) when NVIDIA VRAM ≤4 GiB
 - Sets `HERMES_HOME` correctly from the profile-aware path logic
 - Inserts `--ozone-platform=wayland` when on Wayland
 

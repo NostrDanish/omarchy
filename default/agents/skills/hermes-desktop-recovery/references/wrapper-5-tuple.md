@@ -1,23 +1,12 @@
-echo "Harden Hermes Desktop launcher for agent skew and weak NVIDIA GPUs"
+# Hermes Desktop Launcher — 5-Tuple Safe Wrapper
 
-# Hermes Desktop is an upstream Electron app Omarchy installs. After agent updates,
-# the packaged shell can lag the CLI (arity + protocol skew). Stock launchers that
-# set HERMES_DESKTOP_IGNORE_EXISTING=1 also skip the installed runtime.
-# Install a user-PATH override (Omarchy already prefers ~/.config/omarchy/bin).
+Path: `~/.config/omarchy/bin/hermes-desktop`
 
-omarchy-pkg-present hermes-desktop || exit 0
+This wrapper handles the arity mismatch between the 4-tuple stock launcher
+and the 5-tuple `_desktop_launch_options()` in modern hermes-cli. It also
+soft-defaults software GPU on weak NVIDIA GPUs (≤4 GiB VRAM).
 
-mkdir -p "$HOME/.config/omarchy/bin"
-target="$HOME/.config/omarchy/bin/hermes-desktop"
-
-# Do not clobber a newer user-maintained override if it already handles 5-tuple,
-# has no IGNORE_EXISTING trap, and includes weak-NVIDIA / software-GPU handling.
-if [[ -x $target ]] && grep -q 'renderer_a11y\|renderer_accessibility' "$target" \
-  && grep -qE 'HERMES_DESKTOP_DISABLE_GPU|memory\.total' "$target" \
-  && ! grep -q '^export HERMES_DESKTOP_IGNORE_EXISTING=1' "$target"; then
-  :
-else
-  cat >"$target" <<'WRAPPER'
+```bash
 #!/bin/bash
 # User override: hermes-desktop package unpacks 4 launch options, but
 # hermes-agent CLI now returns 5 (adds renderer_accessibility).
@@ -110,25 +99,4 @@ if (env.get("WAYLAND_DISPLAY") or env.get("XDG_SESSION_TYPE") == "wayland") and 
     flags.insert(0, "--ozone-platform=wayland")
 os.execve(native, [native, "--disable-setuid-sandbox", *flags, *args], env)
 PY
-WRAPPER
-  chmod +x "$target"
-fi
-
-# Skills migration may already have completed before this skill shipped — link it now.
-OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
-skill_src="$OMARCHY_PATH/default/agents/skills/hermes-desktop-recovery"
-if [[ -d $skill_src ]]; then
-  mkdir -p "$HOME/.hermes/skills"
-  ln -sfn "$skill_src" "$HOME/.hermes/skills/hermes-desktop-recovery"
-  if [[ -d $HOME/.hermes/profiles ]]; then
-    for profile in "$HOME"/.hermes/profiles/*/; do
-      [[ -d $profile ]] || continue
-      mkdir -p "$profile/skills"
-      ln -sfn "$skill_src" "$profile/skills/hermes-desktop-recovery"
-    done
-  fi
-fi
-
-# Users on weak NVIDIA GPUs should also set desktop.disable_gpu: true in Hermes config
-# (Hermes Desktop Settings or config.yaml). Rebuild matched shell with:
-#   hermes desktop --build-only
+```
