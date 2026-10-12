@@ -4,10 +4,8 @@ Use after any desktop fix attempt. Check each item before declaring the desktop 
 
 ## Path & Launch
 
-- [ ] `type -a hermes-desktop` — first hit is `~/.config/omarchy/bin/hermes-desktop`
+- [ ] `pacman -Q hermes-desktop` — package is current (`omarchy-update`)
 - [ ] `pgrep -af "linux-unpacked/Hermes"` — process running from unpacked build when available
-- [ ] Wrapper unpacks 5 launch options (`renderer_a11y`) and does not export `HERMES_DESKTOP_IGNORE_EXISTING=1`
-- [ ] Fresh install opens via `omarchy-install-ai-hermes` using the user override when present
 
 ## Env Vars & GPU
 

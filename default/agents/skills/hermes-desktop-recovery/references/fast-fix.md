@@ -1,30 +1,24 @@
 # Fast fix (copy/paste)
 
 ```bash
-# 1) Match desktop shell to agent
+# 1) Make sure the packaged launcher is current (5-value launch options, weak-NVIDIA handling)
+omarchy-update        # or: sudo pacman -Syu hermes-desktop
+
+# 2) Match desktop shell to agent
 hermes desktop --build-only --force-build
 
-# 2) Install / refresh the Omarchy user launcher (do not append env lines into the script)
-mkdir -p ~/.config/omarchy/bin
-# Prefer the packaged migration when available:
-if [[ -f ${OMARCHY_PATH:-/usr/share/omarchy}/migrations/1791324018.sh ]]; then
-  bash "${OMARCHY_PATH:-/usr/share/omarchy}/migrations/1791324018.sh"
-else
-  # Or copy the full wrapper from references/wrapper-5-tuple.md
-  echo "Copy references/wrapper-5-tuple.md into ~/.config/omarchy/bin/hermes-desktop" >&2
-fi
-chmod +x ~/.config/omarchy/bin/hermes-desktop
-
-# 3) Ensure Omarchy user launcher wins on PATH
-type -a hermes-desktop   # expect ~/.config/omarchy/bin/hermes-desktop first
-
-# 4) Launch + verify
+# 3) Launch + verify
 hermes-desktop &
 sleep 8
 rg 'backend is ready|IGNORE_EXISTING|predates|FATAL' ~/.hermes/logs/desktop.log | tail -15
 ```
 
-On weak NVIDIA (≤4 GiB), the wrapper soft-defaults `HERMES_DESKTOP_DISABLE_GPU=1`.
-Override with `HERMES_DESKTOP_DISABLE_GPU=0` if you need hardware GPU.
+On NVIDIA cards with ≤4 GiB VRAM the packaged launcher soft-defaults
+`HERMES_DESKTOP_DISABLE_GPU=1`. Force a choice per launch, without editing any file:
 
-Not a HackerOne bounty: upstream Electron/Hermes crashes Omarchy merely ships (see local TRIAGE).
+```bash
+HERMES_DESKTOP_DISABLE_GPU=1 hermes-desktop   # software rendering
+HERMES_DESKTOP_DISABLE_GPU=0 hermes-desktop   # keep hardware GPU
+```
+
+To persist it, set `desktop.disable_gpu: true` in `~/.hermes/config.yaml`.
