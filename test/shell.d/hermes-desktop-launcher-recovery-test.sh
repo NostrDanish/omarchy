@@ -34,27 +34,34 @@ run_migration() {
 }
 
 skill_src="$test_tmp/omarchy/default/agents/skills/hermes-desktop-recovery"
-skill_link="$test_tmp/home/.hermes/skills/hermes-desktop-recovery"
-profile_link="$test_tmp/home/.hermes/profiles/work/skills/hermes-desktop-recovery"
+home="$test_tmp/home"
+agent_dirs=(.agents/skills .claude/skills .codex/skills .pi/agent/skills .gemini/config/skills .hermes/skills .hermes/profiles/work/skills)
 
-mkdir -p "$test_tmp/home"
+# Skill linking does not depend on Hermes Desktop being installed.
+for d in "${agent_dirs[@]}"; do mkdir -p "$home/$d"; done
 OMARCHY_TEST_DESKTOP_INSTALLED=0 run_migration || fail "migration exits clean without Hermes Desktop"
-[[ ! -e $skill_link ]] || fail "skill is not linked without Hermes Desktop"
-pass "migration only applies where Omarchy installed Hermes Desktop"
-
-mkdir -p "$test_tmp/home/.hermes/profiles/work"
-run_migration || fail "migration exits clean with Hermes Desktop installed"
-[[ -L $skill_link && $(readlink "$skill_link") == "$skill_src" ]] || fail "skill linked into ~/.hermes/skills"
-[[ -L $profile_link && $(readlink "$profile_link") == "$skill_src" ]] || fail "skill linked into existing profiles"
-[[ ! -e $test_tmp/home/.config/omarchy/bin/hermes-desktop ]] || fail "migration writes no user launcher"
+for d in "${agent_dirs[@]}"; do
+  [[ -L $home/$d/hermes-desktop-recovery && $(readlink "$home/$d/hermes-desktop-recovery") == "$skill_src" ]] ||
+    fail "skill linked into ~/$d"
+done
+[[ ! -e $home/.config/omarchy/bin/hermes-desktop ]] || fail "migration writes no user launcher"
 run_migration || fail "migration is idempotent"
-pass "migration links the recovery skill for existing agents"
+pass "migration links the recovery skill into every existing agent skill folder"
 
-rm -f "$skill_link"
-ln -s /somewhere/custom "$skill_link"
-run_migration || fail "migration exits clean with a custom skill link"
-[[ $(readlink "$skill_link") == /somewhere/custom ]] || fail "custom skill link is preserved"
-pass "migration preserves a user's own skill link"
+rm -rf "$home"; mkdir -p "$home/.claude/skills"
+run_migration || fail "migration exits clean with few agent folders"
+[[ ! -e $home/.codex && ! -e $home/.hermes && ! -e $home/.agents ]] || fail "missing agent folders are not created"
+[[ -L $home/.claude/skills/hermes-desktop-recovery ]] || fail "existing agent folder gets the skill"
+pass "migration only links where an agent skill folder exists"
+
+ln -sfn /somewhere/custom "$home/.claude/skills/hermes-desktop-recovery"
+mkdir -p "$home/.codex/skills/hermes-desktop-recovery"
+echo mine >"$home/.codex/skills/hermes-desktop-recovery/SKILL.md"
+run_migration || fail "migration exits clean with user skills present"
+[[ $(readlink "$home/.claude/skills/hermes-desktop-recovery") == /somewhere/custom ]] || fail "custom skill link is preserved"
+[[ ! -L $home/.codex/skills/hermes-desktop-recovery && $(cat "$home/.codex/skills/hermes-desktop-recovery/SKILL.md") == mine ]] ||
+  fail "user's own skill directory is preserved"
+pass "migration never replaces a user's existing skill"
 
 ! grep -q 'config/omarchy/bin' "$ROOT/bin/omarchy-install-ai-hermes" ||
   fail "omarchy-install-ai-hermes does not depend on ~/.config/omarchy/bin"

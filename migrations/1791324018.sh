@@ -1,24 +1,26 @@
 echo "Link the Hermes Desktop recovery skill for existing agents"
 
 # The launcher fixes (5-value launch options, weak-NVIDIA software GPU) ship in
-# the hermes-desktop package from omarchy-pkgs. This only makes the recovery
-# skill discoverable for agents set up before it existed. Never replace a skill
-# the user already has under this name.
-
-omarchy-pkg-present hermes-desktop || exit 0
+# the hermes-desktop package from omarchy-pkgs. omarchy-provision-user links
+# skills only during first setup, so agents configured before this skill
+# existed never see it. Link it into the same agent skill folders, only where
+# they already exist, and never replace a skill the user has under this name.
 
 skill_src="${OMARCHY_PATH:-/usr/share/omarchy}/default/agents/skills/hermes-desktop-recovery"
 [[ -d $skill_src ]] || exit 0
 
 link_skill() {
   local dir=$1
-  mkdir -p "$dir"
+  [[ -d $dir ]] || return 0
   [[ -e $dir/hermes-desktop-recovery || -L $dir/hermes-desktop-recovery ]] && return 0
   ln -s "$skill_src" "$dir/hermes-desktop-recovery"
 }
 
-link_skill "$HOME/.hermes/skills"
+for dir in "$HOME"/.agents/skills "$HOME"/.claude/skills "$HOME"/.codex/skills \
+  "$HOME"/.pi/agent/skills "$HOME"/.gemini/config/skills "$HOME"/.hermes/skills; do
+  link_skill "$dir"
+done
 for profile in "$HOME"/.hermes/profiles/*/; do
-  [[ -d $profile ]] && link_skill "${profile%/}/skills"
+  link_skill "${profile%/}/skills"
 done
 exit 0
