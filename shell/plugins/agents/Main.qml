@@ -243,17 +243,30 @@ Item {
   // toward the summary, but would leave an empty section.
   readonly property var subscribedProviders: enabledProviders.filter(providerHasSubscription)
 
-  // Every agent this machine has a record for, whether or not it is shown:
-  // the settings list has to be able to bring back one that was switched
-  // off, so it cannot be built from the agents on screen.
+  // Every agent known locally, in settings, or on a synced machine. Keeping
+  // hidden and synced-only agents here lets Settings unhide, disable, or order them.
   readonly property var knownProviders: {
     var rev = dataRevision
+    var syncRev = syncRevision
     var result = []
+    var ids = []
+    var add = function(id, name) {
+      var providerId = String(id || "")
+      if (!providerId || ids.indexOf(providerId) >= 0) return
+      ids.push(providerId)
+      result.push({ providerId: providerId, providerName: String(name || providerId) })
+    }
     for (var i = 0; i < agents.length; i++) {
       var record = agents[i] ? agents[i].record : null
-      if (!record || !record.id) continue
-      result.push({ providerId: String(record.id), providerName: String(record.name || record.id) })
+      if (record && record.id) add(record.id, record.name || record.id)
     }
+    var syncedProviders = syncConfigured() && aggregateData && aggregateData.providers ? aggregateData.providers : {}
+    for (var syncedId in syncedProviders) {
+      var stats = syncedProviders[syncedId] || {}
+      add(syncedId, stats.providerName || syncedId)
+    }
+    var configuredProviders = settings && settings.providers ? settings.providers : {}
+    for (var configuredId in configuredProviders) add(configuredId, configuredId)
     return orderedProviders(result)
   }
 

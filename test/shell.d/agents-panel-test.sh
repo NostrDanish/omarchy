@@ -75,6 +75,13 @@ fakeRoot.settings = {}
 written.length = 0
 save('claude', true)
 assertEqual(written[0][1].providers.claude.enabled, true, 'a first write still lands')
+
+fakeRoot.settings = { refreshIntervalSec: 300, providers: { codex: { enabled: true } } }
+written.length = 0
+save('claude', false, { claude: false })
+save('grok', false, { claude: false, grok: false })
+assertEqual(written[1][1].providers.claude.enabled, false, 'a second fast toggle keeps the first pending change')
+assertEqual(written[1][1].providers.grok.enabled, false, 'the second fast toggle is written too')
 JS
 
 # The panel reads a window out of a label, and that guess cannot survive a
@@ -129,5 +136,101 @@ assertDeepEqual(
     { title: 'Opus Monthly', percent: 0.5, resetAt: '', scoped: [] }
   ],
   'agents panel shows a model-scoped window under the window it runs on'
+)
+JS
+
+# Settings state is optimistic until the shell writes back, and ordering includes hidden agents.
+run_node_test <<'JS'
+const fs = require('fs')
+const mainSource = fs.readFileSync(root + '/shell/plugins/agents/Main.qml', 'utf8')
+const providerEnabledSource = mainSource.match(/function providerEnabled\([^]*?\n  \}/)[0]
+const setProviderEnabledSource = mainSource.match(/function setProviderEnabled\([^]*?\n  \}/)[0]
+const signals = []
+const toggleRoot = {
+  providerToggles: {},
+  settings: { providers: { off: { enabled: false } } },
+  providerEnabledChanged: (id, enabled) => signals.push([id, enabled])
+}
+const toggles = new Function('root', 'var settings = root.settings;\n' + providerEnabledSource + '\n' + setProviderEnabledSource + '\nreturn {providerEnabled, setProviderEnabled}')(toggleRoot)
+assertEqual(toggles.providerEnabled('off'), false, 'a saved disabled provider starts hidden')
+assertEqual(toggles.providerEnabled('new'), true, 'an unset provider starts enabled')
+toggles.setProviderEnabled('off', true)
+assertEqual(toggles.providerEnabled('off'), true, 'a changed switch updates immediately')
+toggles.setProviderEnabled('new', false)
+assertEqual(toggles.providerEnabled('new'), false, 'a new switch updates immediately')
+assertDeepEqual(signals, [['off', true], ['new', false]], 'switch changes reach the save handler')
+
+const moveSource = mainSource.match(/function moveKnownProvider\([^]*?\n  \}/)[0]
+function mover(root) {
+  return new Function('root',
+    'var knownProviders = root.knownProviders; var providerOrder = root.providerOrder; var orderFile = root.orderFile;\n' +
+    moveSource + '\nreturn function(id, to) { moveKnownProvider(id, to); root.providerOrder = providerOrder }'
+  )(root)
+}
+function orderState(ids) {
+  const writes = []
+  const root = {
+    knownProviders: ids.map(providerId => ({ providerId })),
+    providerOrder: [],
+    orderFile: { setText: text => writes.push(text) }
+  }
+  return { root, writes, move: mover(root) }
+}
+
+const hidden = orderState(['first', 'hidden', 'last'])
+hidden.move('hidden', 0)
+assertDeepEqual(hidden.root.providerOrder, ['hidden', 'first', 'last'], 'a hidden provider keeps its order slot')
+assertDeepEqual(JSON.parse(hidden.writes[0]), hidden.root.providerOrder, 'the new order is persisted as provider IDs')
+
+const clamped = orderState(['first', 'hidden', 'last'])
+clamped.move('last', -1)
+assertDeepEqual(clamped.root.providerOrder, ['last', 'first', 'hidden'], 'out-of-range destinations clamp to the list')
+assertDeepEqual(JSON.parse(clamped.writes[0]), clamped.root.providerOrder, 'the clamped order is persisted')
+
+const unknown = orderState(['first', 'hidden', 'last'])
+unknown.move('missing', 1)
+assertEqual(unknown.writes.length, 0, 'unknown providers do not write')
+
+const unchanged = orderState(['hidden', 'first', 'last'])
+unchanged.root.providerOrder = ['hidden', 'first', 'last']
+unchanged.move('hidden', 0)
+assertEqual(unchanged.writes.length, 0, 'an unchanged move does not write')
+
+const syncedSource = mainSource.match(/readonly property var knownProviders:\s*\{([^]*?)\n  \}/)[1]
+function knownProvidersFor(root) {
+  return new Function('root', `
+    var dataRevision = root.dataRevision
+    var syncRevision = root.syncRevision
+    var agents = root.agents
+    var settings = root.settings
+    var aggregateData = root.aggregateData
+    var syncConfigured = function() { return root.syncEnabled }
+    var orderedProviders = function(list) {
+      var order = root.providerOrder
+      var rank = function(p) { var i = order.indexOf(p.providerId); return i < 0 ? order.length : i }
+      return list.slice().sort(function(a, b) { return rank(a) - rank(b) })
+    }
+    return (function() { ${syncedSource} })()
+  `)(root)
+}
+const providersRoot = {
+  dataRevision: 1,
+  syncRevision: 1,
+  agents: [{ record: { id: 'local', name: 'Local' } }],
+  settings: { providers: { local: { enabled: false }, configured: { enabled: false } } },
+  aggregateData: { providers: { local: { providerName: 'Wrong duplicate' }, synced: { providerName: 'Synced name' } } },
+  syncEnabled: true,
+  providerOrder: []
+}
+assertDeepEqual(
+  knownProvidersFor(providersRoot).map(p => [p.providerId, p.providerName]),
+  [['local', 'Local'], ['synced', 'Synced name'], ['configured', 'configured']],
+  'settings includes local, synced-only, and saved providers without duplicates'
+)
+providersRoot.syncEnabled = false
+assertDeepEqual(
+  knownProvidersFor(providersRoot).map(p => p.providerId),
+  ['local', 'configured'],
+  'unconfigured synced providers stay out of the settings list'
 )
 JS

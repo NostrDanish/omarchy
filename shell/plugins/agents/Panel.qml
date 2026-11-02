@@ -913,16 +913,19 @@ Panel {
   Main {
     id: usage
     settings: root.settings
-    onProviderEnabledChanged: function(id, enabled) { root.saveProviderEnabled(id, enabled) }
+    onProviderEnabledChanged: function(id, enabled) { root.saveProviderEnabled(id, enabled, usage.providerToggles) }
   }
 
   // The bar entry holds this widget's settings, and writing one replaces
   // the entry whole, so what is in it now is copied over first.
-  function saveProviderEnabled(id, enabled) {
+  function saveProviderEnabled(id, enabled, pendingToggles) {
     var shell = root.bar ? root.bar.shell : null
     if (!shell) return
     var current = root.settings ? JSON.parse(JSON.stringify(root.settings)) : {}
     var providers = current.providers ? current.providers : {}
+    var pending = pendingToggles || ({})
+    for (var providerId in pending)
+      providers[providerId] = Object.assign({}, providers[providerId] || {}, { enabled: pending[providerId] })
     providers[id] = Object.assign({}, providers[id] || {}, { enabled: enabled })
     current.providers = providers
     if (typeof shell.updateEntryInline === "function") shell.updateEntryInline(root.moduleName, current)
