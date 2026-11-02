@@ -30,6 +30,9 @@ Panel {
   // answers is how much room is left, and where.
   readonly property var providers: usage.subscribedProviders
 
+  // The settings tab: which agents show, and in what order.
+  property bool showSettings: false
+
   property bool cursorActive: false
 
   // Countdowns and "last updated" ages read this instead of Date.now() so the
@@ -60,13 +63,17 @@ Panel {
   readonly property var keyRows: {
     var rows = []
     var hero = []
-    if (addButtonShown) hero.push({ kind: "add", index: 0 })
+    if (addButtonShown && !root.showSettings) hero.push({ kind: "add", index: 0 })
     if (addStage === "") hero.push({ kind: "launch", index: 0 })
+    if (addStage === "") hero.push({ kind: "settingsButton", index: 0 })
     if (hero.length > 0) rows.push(hero)
     if (picking) {
       var choices = []
       for (var k = 0; k < addProviders.length; k++) choices.push({ kind: "choice", index: k })
       rows.push(choices)
+    } else if (root.showSettings) {
+      // The settings tab: one stop per agent, to switch it on or off.
+      for (var s = 0; s < usage.knownProviders.length; s++) rows.push([{ kind: "settings", index: s }])
     } else if (addStage === "") {
       // Accounts count in the same order as accountEntries. Only what can be
       // done is a stop: one that isn't active offers Autoswitch beside Use, a
@@ -158,12 +165,27 @@ Panel {
   // Ctrl+Up/Down carries the agent the cursor is in up or down the page, and
   // the cursor along with it.
   function reorderProvider(dy) {
+    // In the settings tab the cursor is on an agent's own row.
+    if (keyTarget && keyTarget.kind === "settings") {
+      nudgeProvider(keyTarget.index, dy)
+      return
+    }
     var from = providerIndexOfKey()
     if (from < 0) return
     var to = clamp(from + dy, 0, providers.length - 1)
     if (to === from) return
     usage.moveProvider(providers[from].providerId, to)
     Qt.callLater(function() { pointAt("provider", to) })
+  }
+
+  // Moves an agent up or down the order the settings tab shows.
+  function nudgeProvider(index, dy) {
+    var list = usage.knownProviders
+    if (index < 0 || index >= list.length) return
+    var to = Math.max(0, Math.min(list.length - 1, index + dy))
+    if (to === index) return
+    usage.moveKnownProvider(list[index].providerId, to)
+    Qt.callLater(function() { pointAt("settings", to) })
   }
 
   // Dragging an agent by its mark lights the header it would land on, and
@@ -395,6 +417,11 @@ Panel {
     else if (target.kind === "choice") chooseAddProvider(addProviders[target.index].providerId)
     else if (target.kind === "launch") launchAgent()
     else if (target.kind === "starter") startPrompt(starterPrompts[target.index].prompt)
+    else if (target.kind === "settingsButton") showSettings = !showSettings
+    else if (target.kind === "settings") {
+      var listed = usage.knownProviders[target.index]
+      if (listed) usage.setProviderEnabled(listed.providerId, !usage.providerEnabled(listed.providerId))
+    }
     else if (target.kind === "providerSignin") signInAgain(providers[target.index], null)
     else if (target.kind === "signin") signInAgain(pickedEntry.provider, pickedEntry.account)
     else if (target.kind === "autoswitch") setSwitchMode(pickedEntry.provider, autoSwitchFor(pickedEntry.provider) ? "manual" : "auto")
@@ -843,7 +870,7 @@ Panel {
   // Choosing a provider: asked for with the +, or simply what the panel is
   // while nothing is set up. It's derived rather than switched into, so
   // records that load a moment after the panel opens take its place.
-  readonly property bool picking: addStage === "pick" || (blankSlate && addStage === "")
+  readonly property bool picking: !root.showSettings && (addStage === "pick" || (blankSlate && addStage === ""))
   // The + in the hero turns into the X that leaves adding. A first setup has
   // nothing to go back to until an agent is chosen.
   readonly property bool addButtonShown: !blankSlate || !picking
@@ -886,6 +913,20 @@ Panel {
   Main {
     id: usage
     settings: root.settings
+    onProviderEnabledChanged: function(id, enabled) { root.saveProviderEnabled(id, enabled) }
+  }
+
+  // The bar entry holds this widget's settings, and writing one replaces
+  // the entry whole, so what is in it now is copied over first.
+  function saveProviderEnabled(id, enabled) {
+    var shell = root.bar ? root.bar.shell : null
+    if (!shell) return
+    var current = root.settings ? JSON.parse(JSON.stringify(root.settings)) : {}
+    var providers = current.providers ? current.providers : {}
+    providers[id] = Object.assign({}, providers[id] || {}, { enabled: enabled })
+    current.providers = providers
+    if (typeof shell.updateEntryInline === "function") shell.updateEntryInline(root.moduleName, current)
+    else if (typeof shell._updateSettings === "function") shell._updateSettings(root.moduleName, current)
   }
 
   Process {
@@ -1073,7 +1114,7 @@ Panel {
                 visible: root.addStage === "" || root.addButtonShown
 
                 HeroButton {
-                  visible: root.addButtonShown
+                  visible: root.addButtonShown && !root.showSettings
                   hasCursor: root.hasKey("add")
                   onHovered: root.pointAt("add")
                   readonly property bool adding: root.addStage !== ""
@@ -1090,18 +1131,27 @@ Panel {
                   tooltip: Commons.I18n.t("agents.startDefaultAgent")
                   onClicked: root.launchAgent()
                 }
+
+                HeroButton {
+                  visible: root.addStage === ""
+                  hasCursor: root.hasKey("settingsButton")
+                  onHovered: root.pointAt("settingsButton")
+                  glyph: root.showSettings ? "󰅖" : "󰒓"
+                  tooltip: root.showSettings ? Commons.I18n.t("agents.backToLimits") : Commons.I18n.t("agents.settings")
+                  onClicked: root.showSettings = !root.showSettings
+                }
               }
             }
           }
 
           AddView {
-            visible: root.addStage !== "" || root.blankSlate
+            visible: (root.addStage !== "" || root.blankSlate) && !root.showSettings
             width: column.width
           }
 
           Repeater {
             id: providerSections
-            model: root.addStage === "" ? root.providers : []
+            model: root.addStage === "" && !root.showSettings ? root.providers : []
 
             ProviderSection {
               required property var modelData
@@ -1112,14 +1162,103 @@ Panel {
             }
           }
 
+          // ---------- Settings: which agents show, and in what order ----------
+          Column {
+            id: settingsColumn
+            visible: root.showSettings
+            width: parent.width
+            spacing: Style.space(12)
+
+            PanelSeparator {
+              foreground: root.foreground
+            }
+
+            PanelSectionHeader {
+              text: Commons.I18n.t("agents.settingsList")
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: Commons.I18n.t("agents.hiddenNote")
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            Repeater {
+              model: root.showSettings ? usage.knownProviders : []
+
+              Item {
+                id: settingsRow
+                required property var modelData
+                required property int index
+                width: parent.width
+                implicitHeight: Math.max(settingsName.implicitHeight, settingsSwitch.implicitHeight)
+
+                Text {
+                  id: settingsName
+                  anchors.left: parent.left
+                  anchors.right: settingsControls.left
+                  anchors.rightMargin: Style.space(10)
+                  anchors.verticalCenter: parent.verticalCenter
+                  textFormat: Text.PlainText
+                  text: settingsRow.modelData.providerName
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                }
+
+                Row {
+                  id: settingsControls
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(6)
+
+                  PanelActionButton {
+                    iconText: "↑"
+                    tooltipText: Commons.I18n.t("agents.moveUp")
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    enabled: settingsRow.index > 0
+                    onClicked: root.nudgeProvider(settingsRow.index, -1)
+                  }
+
+                  PanelActionButton {
+                    iconText: "↓"
+                    tooltipText: Commons.I18n.t("agents.moveDown")
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    enabled: settingsRow.index < usage.knownProviders.length - 1
+                    onClicked: root.nudgeProvider(settingsRow.index, 1)
+                  }
+
+                  ToggleSwitch {
+                    id: settingsSwitch
+                    checked: usage.providerEnabled(settingsRow.modelData.providerId)
+                    hasCursor: root.hasKey("settings", settingsRow.index)
+                    foreground: root.foreground
+                    accent: Commons.Color.accent
+                    onToggled: usage.setProviderEnabled(settingsRow.modelData.providerId,
+                                                        !usage.providerEnabled(settingsRow.modelData.providerId))
+                  }
+                }
+              }
+            }
+          }
+
           // ---------- Make something ----------
           PanelSeparator {
-            visible: root.addStage === "" && !root.blankSlate
+            visible: root.addStage === "" && !root.blankSlate && !root.showSettings
             foreground: root.foreground
           }
 
           Column {
-            visible: root.addStage === "" && !root.blankSlate
+            visible: root.addStage === "" && !root.blankSlate && !root.showSettings
             width: parent.width
             spacing: Style.space(12)
 
