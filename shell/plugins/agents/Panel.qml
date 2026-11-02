@@ -1137,7 +1137,7 @@ Panel {
                   hasCursor: root.hasKey("settingsButton")
                   onHovered: root.pointAt("settingsButton")
                   glyph: root.showSettings ? "󰅖" : "󰒓"
-                  tooltip: root.showSettings ? Commons.I18n.t("agents.backToLimits") : Commons.I18n.t("agents.settings")
+                  tooltip: root.showSettings ? Commons.I18n.t("agents.backToLimits") : Commons.I18n.t("agents.settings", "Settings")
                   onClicked: root.showSettings = !root.showSettings
                 }
               }
@@ -1174,7 +1174,7 @@ Panel {
             }
 
             PanelSectionHeader {
-              text: Commons.I18n.t("agents.settingsList")
+              text: Commons.I18n.t("agents.settingsList", "Agents in this panel")
               foreground: root.foreground
               fontFamily: root.fontFamily
             }
@@ -1182,7 +1182,7 @@ Panel {
             Text {
               width: parent.width
               textFormat: Text.PlainText
-              text: Commons.I18n.t("agents.hiddenNote")
+              text: Commons.I18n.t("agents.hiddenNote", "A hidden agent keeps its place in the order, but drops out of the panel.")
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -1221,7 +1221,7 @@ Panel {
 
                   PanelActionButton {
                     iconText: "↑"
-                    tooltipText: Commons.I18n.t("agents.moveUp")
+                    tooltipText: Commons.I18n.t("agents.moveUp", "Move up")
                     foreground: root.foreground
                     fontFamily: root.fontFamily
                     enabled: settingsRow.index > 0
@@ -1230,7 +1230,7 @@ Panel {
 
                   PanelActionButton {
                     iconText: "↓"
-                    tooltipText: Commons.I18n.t("agents.moveDown")
+                    tooltipText: Commons.I18n.t("agents.moveDown", "Move down")
                     foreground: root.foreground
                     fontFamily: root.fontFamily
                     enabled: settingsRow.index < usage.knownProviders.length - 1
